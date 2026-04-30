@@ -18,9 +18,11 @@ class Response:
     worker_id: int
     result: str
     latency: float
+    strategy_used: Optional[str] = None  
 
 
 # Task Tracking (for Scheduler)
+@dataclass
 class Task:
     request: Request
     assigned_worker: Optional[int] = None

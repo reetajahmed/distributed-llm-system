@@ -29,6 +29,8 @@ class Scheduler:
             # Store result
             self.results[request.id] = response
 
+            print(f"[Scheduler] Strategy used: {response.strategy_used}")
+
             latency = time.time() - start_time
             print(f"[Scheduler] Request {request.id} completed in {latency:.3f}s")
 
