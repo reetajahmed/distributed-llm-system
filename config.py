@@ -15,3 +15,15 @@ RAG_EMBEDDING_MODEL_NAME = "sentence-transformers/all-MiniLM-L6-v2"
 RAG_CACHE_MAX_SIZE = 1000
 RAG_DEFAULT_TOP_K = 3
 RAG_ENABLE_LOGGING = True
+
+# Load balancer configuration
+LOAD_BALANCER_STRATEGIES = ("round_robin", "least_connections", "load_aware")
+LOAD_BALANCER_DEFAULT_STRATEGY = "load_aware"
+LOAD_BALANCER_DEFAULT_GPU_CAPACITY = {
+    1: 1.0,  # 100%
+    2: 0.7,  # 70%
+    3: 0.4,  # 40%
+}
+LOAD_BALANCER_MIN_GPU_CAPACITY = 0.1
+LOAD_BALANCER_QUEUE_WEIGHT = 0.75
+LOAD_BALANCER_LATENCY_PENALTY_WEIGHT = 0.25

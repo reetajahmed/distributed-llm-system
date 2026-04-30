@@ -4,17 +4,19 @@ import threading
 import time
 from collections import defaultdict
 from typing import Any, Dict, List, Optional, TYPE_CHECKING
+
+from config import (
+    LOAD_BALANCER_DEFAULT_GPU_CAPACITY,
+    LOAD_BALANCER_DEFAULT_STRATEGY,
+    LOAD_BALANCER_LATENCY_PENALTY_WEIGHT,
+    LOAD_BALANCER_MIN_GPU_CAPACITY,
+    LOAD_BALANCER_QUEUE_WEIGHT,
+    LOAD_BALANCER_STRATEGIES,
+)
 from common.types import Request
 
 if TYPE_CHECKING:
     from workers.gpu_worker import GPUWorker
-
-
-DEFAULT_GPU_CAPACITY = {
-    1: 1.0,  # 100%
-    2: 0.7,  # 70%
-    3: 0.4,  # 40%
-}
 
 
 def _worker_id(worker: "GPUWorker") -> int:
@@ -60,13 +62,13 @@ def _gpu_capacity(worker: "GPUWorker") -> float:
     if capacity is None:
         capacity = getattr(worker, "weight", None)
     if capacity is None:
-        capacity = DEFAULT_GPU_CAPACITY.get(_worker_id(worker), 1.0)
+        capacity = LOAD_BALANCER_DEFAULT_GPU_CAPACITY.get(_worker_id(worker), 1.0)
 
     capacity = float(capacity)
     if capacity > 1.0:
         capacity = capacity / 100.0
 
-    return max(0.1, capacity)
+    return max(LOAD_BALANCER_MIN_GPU_CAPACITY, capacity)
 
 
 def _rolling_latency(worker: "GPUWorker") -> float:
@@ -150,8 +152,8 @@ class LoadAwareBalancer:
         active = _active_connections(worker)
         queued = _queue_length(worker)
         capacity = _gpu_capacity(worker)
-        latency_penalty = _rolling_latency(worker) * 0.25
-        return (active + (queued * 0.75) + latency_penalty) / capacity
+        latency_penalty = _rolling_latency(worker) * LOAD_BALANCER_LATENCY_PENALTY_WEIGHT
+        return (active + (queued * LOAD_BALANCER_QUEUE_WEIGHT) + latency_penalty) / capacity
 
     def get_worker(self) -> Optional["GPUWorker"]:
         healthy = _healthy_workers(self._workers)
@@ -176,9 +178,9 @@ class LoadAwareBalancer:
 class LoadBalancer:
     """Aggregates routing strategies and tracks routing metrics."""
 
-    STRATEGIES = ("round_robin", "least_connections", "load_aware")
+    STRATEGIES = LOAD_BALANCER_STRATEGIES
 
-    def __init__(self, workers: List["GPUWorker"], strategy: str = "load_aware"):
+    def __init__(self, workers: List["GPUWorker"], strategy: str = LOAD_BALANCER_DEFAULT_STRATEGY):
         self._workers = list(workers)
         self._round_robin = RoundRobinBalancer(self._workers)
         self._least_conn = LeastConnectionsBalancer(self._workers)
@@ -191,7 +193,7 @@ class LoadBalancer:
             "requests_per_worker": defaultdict(int),
             "strategy_counts": defaultdict(int),
         }
-        self._strategy = "load_aware"
+        self._strategy = LOAD_BALANCER_DEFAULT_STRATEGY
         self.set_strategy(strategy)
 
     @property
