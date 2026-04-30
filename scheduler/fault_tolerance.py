@@ -1,3 +1,5 @@
+from common.types import Response
+
 class FaultTolerance:
     def __init__(self, load_balancer):
         # Use the same load balancer as scheduler
@@ -23,8 +25,9 @@ class FaultTolerance:
         # If all retries fail
         print(f"[FaultTolerance] Request {request.id} FAILED permanently")
 
-        return {
-            "id": request.id,
-            "result": "FAILED",
-            "latency": None
-        }
+        return Response(
+            id=request.id,
+            worker_id=-1,   # indicates failure / no worker
+            result="FAILED",
+            latency=0.0
+        )

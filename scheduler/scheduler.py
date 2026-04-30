@@ -44,7 +44,7 @@ class Scheduler:
             response = self.fault_handler.handle_failure(request)
 
             # Update result after retry
-            if response and response.get("result") != "FAILED":
+            if response and response.result != "FAILED":
                 self.active_tasks[request.id] = "DONE"
                 self.results[request.id] = response
             else:
