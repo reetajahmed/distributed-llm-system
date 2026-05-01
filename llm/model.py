@@ -6,6 +6,9 @@ import torch
 from collections import OrderedDict
 from concurrent.futures import ThreadPoolExecutor, TimeoutError
 from transformers import AutoTokenizer, AutoModelForSeq2SeqLM
+import threading
+
+_llm_lock = threading.Lock()
 
 from config import (
     LLM_MODEL_NAME,
@@ -32,13 +35,14 @@ def _log(message: str):
 def _load_llm():
     global _tokenizer, _model
 
-    if _tokenizer is None or _model is None:
-        _log(f"Loading model '{LLM_MODEL_NAME}' on {_device}...")
-        _tokenizer = AutoTokenizer.from_pretrained(LLM_MODEL_NAME)
-        _model = AutoModelForSeq2SeqLM.from_pretrained(LLM_MODEL_NAME)
-        _model.to(_device)
-        _model.eval()
-        _log("Model loaded successfully.")
+    with _llm_lock:
+        if _tokenizer is None or _model is None:
+            _log(f"Loading model '{LLM_MODEL_NAME}' on {_device}...")
+            _tokenizer = AutoTokenizer.from_pretrained(LLM_MODEL_NAME)
+            _model = AutoModelForSeq2SeqLM.from_pretrained(LLM_MODEL_NAME)
+            _model.to(_device)
+            _model.eval()
+            _log("Model loaded successfully.")
 
     return _tokenizer, _model
 
