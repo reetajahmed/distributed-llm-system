@@ -3,3 +3,4 @@ transformers
 sentence-transformers
 scikit-learn
 numpy
+faiss-cpu
