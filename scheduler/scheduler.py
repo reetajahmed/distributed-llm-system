@@ -28,7 +28,7 @@ class Scheduler:
         self.active_tasks = {}   # {request_id: status}
         self.results = {}        # {request_id: response}
 
-        # Stats (for dashboard)
+        # Stats(for dashboard)
         self.completed = 0
         self.failed = 0
         self.retried = 0
@@ -36,7 +36,7 @@ class Scheduler:
     def handle_request(self, request):
         print(f"[Scheduler] Received request {request.id}")
 
-        # 🟡 Add better status system
+
         self.active_tasks[request.id] = "RUNNING"
 
         start_time = time.time()
@@ -44,7 +44,6 @@ class Scheduler:
         try:
             response = self.lb.dispatch(request)
 
-            # ✅ Handle NEW response format
             success = _response_succeeded(response)
             strategy = _response_strategy(response)
 
@@ -66,14 +65,12 @@ class Scheduler:
         except Exception as e:
             print(f"[Scheduler] ERROR on request {request.id}: {e}")
 
-            # 🔴 Mark as retrying
             self.active_tasks[request.id] = "RETRYING"
             self.retried += 1
 
-            # Call fault tolerance
             response = self.fault_handler.handle_failure(request)
 
-            # Check retry result
+
             success = _response_succeeded(response)
 
             if success:
@@ -94,7 +91,6 @@ class Scheduler:
             print(f"Request {req_id}: {status}")
         print("============================\n")
 
-    # 🔥 Dashboard (FULL MARK feature)
     def print_summary(self):
         print("\n===== Scheduler Summary =====")
         print(f"Tasks completed: {self.completed}")

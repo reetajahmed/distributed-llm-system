@@ -21,11 +21,7 @@ class FaultTolerance:
         for attempt in range(retries):
             try:
                 print(f"[FaultTolerance] Retry {attempt + 1} for request {request.id}")
-
-                # IMPORTANT: pass request_id forward (already inside request)
                 response = self.lb.dispatch(request)
-
-                # ✅ Handle new format (dict or Response)
                 success = _response_succeeded(response)
 
                 if success:
@@ -39,7 +35,6 @@ class FaultTolerance:
 
         print(f"[FaultTolerance] Request {request.id} FAILED permanently")
 
-        # Return unified failure format
         return {
             "request_id": request.id,
             "answer": "FAILED",
