@@ -1,8 +1,18 @@
 from common.types import Response
 
+
+def _response_succeeded(response):
+    if isinstance(response, dict):
+        return response.get("success", False)
+
+    if hasattr(response, "success"):
+        return bool(getattr(response, "success"))
+
+    return getattr(response, "result", None) is not None
+
+
 class FaultTolerance:
     def __init__(self, load_balancer):
-        # Use the same load balancer as scheduler
         self.lb = load_balancer
 
     def handle_failure(self, request, retries=2):
@@ -12,22 +22,28 @@ class FaultTolerance:
             try:
                 print(f"[FaultTolerance] Retry {attempt + 1} for request {request.id}")
 
-                # Try dispatching again
+                # IMPORTANT: pass request_id forward (already inside request)
                 response = self.lb.dispatch(request)
 
-                print(f"[FaultTolerance] Request {request.id} succeeded on retry {attempt + 1}")
+                # ✅ Handle new format (dict or Response)
+                success = _response_succeeded(response)
 
-                return response
+                if success:
+                    print(f"[FaultTolerance] Request {request.id} succeeded on retry {attempt + 1}")
+                    return response
+                else:
+                    print(f"[FaultTolerance] Retry {attempt + 1} returned unsuccessful result")
 
             except Exception as e:
                 print(f"[FaultTolerance] Retry {attempt + 1} failed: {e}")
 
-        # If all retries fail
         print(f"[FaultTolerance] Request {request.id} FAILED permanently")
 
-        return Response(
-            id=request.id,
-            worker_id=-1,   # indicates failure / no worker
-            result="FAILED",
-            latency=0.0
-        )
+        # Return unified failure format
+        return {
+            "request_id": request.id,
+            "answer": "FAILED",
+            "success": False,
+            "latency": 0.0,
+            "rag_results": []
+        }
