@@ -337,6 +337,8 @@ def send_request(scheduler, request_id, query=None):
         source = "client_error"
 
     return {
+        "request_id": request_id,
+        "query": query,
         "success": success,
         "latency": latency,
         "cached": cached,
@@ -413,3 +415,22 @@ def run_client(scheduler, num_requests=None, queries=None):
     print(f"P95 latency: {p95_latency:.2f}s")
     print(f"Throughput: {throughput:.2f} req/sec")
     print("================================\n")
+
+    return {
+        "summary": {
+            "total_requests": total_requests,
+            "unique_query_strings": unique_queries,
+            "unique_query_intents": unique_intents,
+            "successful": successes,
+            "failed": failures,
+            "cache_hits": cache_hits,
+            "scheduler_cache_hits": scheduler_cache_hits,
+            "llm_cache_hits": llm_cache_hits,
+            "llm_inferences": llm_inferences,
+            "average_latency": avg_latency,
+            "p95_latency": p95_latency,
+            "throughput": throughput,
+            "total_time": total_time,
+        },
+        "requests": results,
+    }

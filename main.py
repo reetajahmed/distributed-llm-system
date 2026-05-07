@@ -7,6 +7,7 @@ from client.client import run_client
 from common.default_docs import DEFAULT_DOCUMENTS
 from common.types import Request
 from load_balancer.load_balancer import LoadBalancer
+from reporting import export_run_report
 from scheduler.scheduler import Scheduler
 from workers.gpu_worker import GPUWorker
 from workers.rag import ingest_documents
@@ -126,6 +127,11 @@ def parse_args():
         default=",".join(config.DEFAULT_REMOTE_WORKER_URLS),
         help="Comma-separated remote worker URLs for distributed mode.",
     )
+    parser.add_argument(
+        "--export-dir",
+        default=config.REPORT_EXPORT_DIR,
+        help="Directory for CSV report exports. Use an empty value to disable.",
+    )
     args = parser.parse_args()
 
     if args.users < 1:
@@ -191,7 +197,7 @@ def main():
         repeat_pool_size=args.query_repeat_pool_size,
     )
 
-    run_client(scheduler, num_requests=args.users, queries=queries)
+    client_report = run_client(scheduler, num_requests=args.users, queries=queries)
 
     scheduler.print_summary()
 
@@ -215,6 +221,17 @@ def main():
         for worker_id, stats in worker_stats.items():
             print(f"Worker {worker_id}: {stats}")
         print("========================\n")
+
+    if args.export_dir:
+        export_path = export_run_report(
+            export_dir=args.export_dir,
+            args=args,
+            client_report=client_report,
+            scheduler=scheduler,
+            load_balancer_metrics=metrics,
+            worker_stats=worker_stats,
+        )
+        print(f"CSV reports exported to: {export_path}")
 
 
 if __name__ == "__main__":

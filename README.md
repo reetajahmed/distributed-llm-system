@@ -80,3 +80,29 @@ python main.py --distributed --users 100 --query-workload-size 100 --query-uniqu
 ```
 
 The final report includes scheduler source counts, retry attempts/successes/failures, logical routed failures, exception routed failures, and per-worker `/stats`.
+
+## CSV Reports
+
+Each `main.py` run exports documentation-friendly CSV tables under `reports/<timestamp>/` by default:
+
+```text
+run_summary.csv
+request_results.csv
+load_balancer_metrics.csv
+load_balancer_source_counts.csv
+requests_per_worker.csv
+scheduler_source_counts.csv
+worker_stats.csv
+```
+
+Use a different export directory:
+
+```bash
+python main.py --distributed --export-dir experiment_reports
+```
+
+Disable CSV export:
+
+```bash
+python main.py --distributed --export-dir ""
+```
