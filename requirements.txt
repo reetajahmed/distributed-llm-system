@@ -4,3 +4,6 @@ sentence-transformers
 scikit-learn
 numpy
 faiss-cpu
+fastapi
+uvicorn
+requests

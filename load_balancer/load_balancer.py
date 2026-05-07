@@ -83,6 +83,20 @@ def _healthy_workers(workers: List["GPUWorker"]) -> List["GPUWorker"]:
     return [worker for worker in workers if _is_healthy(worker)]
 
 
+def _response_succeeded(response: Any) -> bool:
+    if isinstance(response, dict):
+        return bool(response.get("success", False))
+    if hasattr(response, "success"):
+        return bool(getattr(response, "success"))
+    return getattr(response, "result", None) is not None
+
+
+def _response_source(response: Any) -> str:
+    if isinstance(response, dict):
+        return response.get("source", "unknown")
+    return getattr(response, "source", "unknown")
+
+
 class RoundRobinBalancer:
     """Health-aware weighted round robin."""
 
@@ -189,9 +203,12 @@ class LoadBalancer:
         self._metrics: Dict[str, Any] = {
             "total_requests": 0,
             "failed_requests": 0,
+            "logical_failed_requests": 0,
+            "exception_failed_requests": 0,
             "total_latency": 0.0,
             "requests_per_worker": defaultdict(int),
             "strategy_counts": defaultdict(int),
+            "source_counts": defaultdict(int),
         }
         self._strategy = LOAD_BALANCER_DEFAULT_STRATEGY
         self.set_strategy(strategy)
@@ -223,7 +240,14 @@ class LoadBalancer:
         start = time.time()
         worker = self._pick()
         if worker is None:
-            self._record_metrics(None, self.strategy, 0.0, failed=True)
+            self._record_metrics(
+                None,
+                self.strategy,
+                0.0,
+                failed=True,
+                source="no_healthy_worker",
+                exception_failed=True,
+            )
             raise RuntimeError("No healthy GPU workers available for routing")
 
         worker_id = _worker_id(worker)
@@ -236,10 +260,26 @@ class LoadBalancer:
             else:
                 setattr(response, "strategy_used", self.strategy)
                 setattr(response, "worker_capacity", _gpu_capacity(worker))
-            self._record_metrics(worker_id, self.strategy, time.time() - start, failed=False)
+            success = _response_succeeded(response)
+            source = _response_source(response)
+            self._record_metrics(
+                worker_id,
+                self.strategy,
+                time.time() - start,
+                failed=not success,
+                source=source,
+                exception_failed=False,
+            )
             return response
         except Exception:
-            self._record_metrics(worker_id, self.strategy, time.time() - start, failed=True)
+            self._record_metrics(
+                worker_id,
+                self.strategy,
+                time.time() - start,
+                failed=True,
+                source="exception",
+                exception_failed=True,
+            )
             raise
 
     def add_worker(self, worker: "GPUWorker") -> None:
@@ -256,15 +296,22 @@ class LoadBalancer:
         strategy: str,
         latency: float,
         failed: bool,
+        source: str = "unknown",
+        exception_failed: bool = False,
     ) -> None:
         with self._lock:
             self._metrics["total_requests"] += 1
             self._metrics["strategy_counts"][strategy] += 1
+            self._metrics["source_counts"][source] += 1
             self._metrics["total_latency"] += latency
             if worker_id is not None:
                 self._metrics["requests_per_worker"][worker_id] += 1
             if failed:
                 self._metrics["failed_requests"] += 1
+                if exception_failed:
+                    self._metrics["exception_failed_requests"] += 1
+                else:
+                    self._metrics["logical_failed_requests"] += 1
 
     def get_metrics(self) -> Dict[str, Any]:
         with self._lock:
@@ -276,13 +323,45 @@ class LoadBalancer:
             return {
                 "total_requests": total,
                 "failed_requests": failures,
+                "logical_failed_requests": self._metrics["logical_failed_requests"],
+                "exception_failed_requests": self._metrics["exception_failed_requests"],
                 "failure_rate": failure_rate,
                 "average_latency": average_latency,
                 "throughput": total / self._metrics["total_latency"] if self._metrics["total_latency"] else 0.0,
                 "requests_per_worker": dict(self._metrics["requests_per_worker"]),
                 "strategy_counts": dict(self._metrics["strategy_counts"]),
+                "source_counts": dict(self._metrics["source_counts"]),
                 "healthy_workers": self.alive_count,
             }
+
+    def reset_metrics(self) -> None:
+        with self._lock:
+            self._metrics = {
+                "total_requests": 0,
+                "failed_requests": 0,
+                "logical_failed_requests": 0,
+                "exception_failed_requests": 0,
+                "total_latency": 0.0,
+                "requests_per_worker": defaultdict(int),
+                "strategy_counts": defaultdict(int),
+                "source_counts": defaultdict(int),
+            }
+
+    def get_worker_stats(self) -> Dict[int, Any]:
+        stats = {}
+        with self._lock:
+            workers = list(self._workers)
+
+        for worker in workers:
+            worker_id = _worker_id(worker)
+            get_stats = getattr(worker, "get_stats", None)
+            if callable(get_stats):
+                try:
+                    stats[worker_id] = get_stats()
+                except Exception as exc:
+                    stats[worker_id] = {"error": str(exc)}
+
+        return stats
 
     @property
     def alive_count(self) -> int:

@@ -18,7 +18,11 @@ class Response:
     worker_id: int
     result: str
     latency: float
-    strategy_used: Optional[str] = None  
+    strategy_used: Optional[str] = None
+    success: bool = True
+    cached: bool = False
+    error: Optional[str] = None
+    source: str = "worker"
 
 
 # Task Tracking (for Scheduler)

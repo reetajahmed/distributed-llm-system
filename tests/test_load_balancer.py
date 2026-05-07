@@ -20,6 +20,8 @@ class FakeWorker:
         queue_length=0,
         rolling_latency=0.0,
         fail=False,
+        success=True,
+        source="worker",
     ):
         self.id = worker_id
         self.alive = alive
@@ -27,6 +29,8 @@ class FakeWorker:
         self.queue_length = queue_length
         self.rolling_latency = rolling_latency
         self.fail = fail
+        self.success = success
+        self.source = source
 
         if gpu_capacity is not None:
             self.gpu_capacity = gpu_capacity
@@ -38,8 +42,9 @@ class FakeWorker:
         return {
             "request_id": request.id,
             "answer": "ok",
-            "success": True,
+            "success": self.success,
             "latency": 0.01,
+            "source": self.source,
         }
 
 
@@ -70,6 +75,7 @@ class TestLoadBalancer(unittest.TestCase):
         metrics = lb.get_metrics()
         self.assertEqual(metrics["total_requests"], 1)
         self.assertEqual(metrics["failed_requests"], 1)
+        self.assertEqual(metrics["exception_failed_requests"], 1)
         self.assertEqual(metrics["failure_rate"], 1.0)
 
     def test_weighted_round_robin_favors_higher_capacity_worker(self):
@@ -130,6 +136,23 @@ class TestLoadBalancer(unittest.TestCase):
         self.assertEqual(metrics["strategy_counts"]["round_robin"], 1)
         self.assertEqual(metrics["strategy_counts"]["load_aware"], 1)
         self.assertEqual(sum(metrics["requests_per_worker"].values()), 2)
+        self.assertEqual(metrics["source_counts"]["worker"], 2)
+
+    def test_unsuccessful_response_updates_logical_failure_metrics(self):
+        lb = LoadBalancer(
+            [FakeWorker(1, alive=True, success=False, source="llm_timeout")],
+            strategy="load_aware",
+        )
+
+        response = lb.dispatch(Request(1, "test query"))
+        metrics = lb.get_metrics()
+
+        self.assertFalse(response["success"])
+        self.assertEqual(metrics["total_requests"], 1)
+        self.assertEqual(metrics["failed_requests"], 1)
+        self.assertEqual(metrics["logical_failed_requests"], 1)
+        self.assertEqual(metrics["exception_failed_requests"], 0)
+        self.assertEqual(metrics["source_counts"]["llm_timeout"], 1)
 
     def test_worker_process_failure_updates_metrics(self):
         lb = LoadBalancer(

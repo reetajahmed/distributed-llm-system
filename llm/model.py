@@ -9,6 +9,10 @@ from transformers import AutoTokenizer, AutoModelForSeq2SeqLM
 import threading
 
 _llm_lock = threading.Lock()
+_cache_lock = threading.RLock()
+_generation_lock = threading.Lock()
+_inflight = {}
+_executor = ThreadPoolExecutor(max_workers=1)
 
 from config import (
     LLM_MODEL_NAME,
@@ -19,11 +23,13 @@ from config import (
     LLM_ENABLE_LOGGING,
     LLM_MAX_RETRIES,
 )
+from common.text_utils import keyword_signature, normalize_text, short_hash
 
 
 _tokenizer = None
 _model = None
 _cache = OrderedDict()
+_intent_cache = OrderedDict()
 _device = "cuda" if torch.cuda.is_available() else "cpu"
 
 
@@ -48,16 +54,107 @@ def _load_llm():
 
 
 def _make_cache_key(query: str, context: str) -> str:
-    raw = f"{query.strip()}::{context.strip()}"
+    raw = f"{normalize_text(query)}::{context.strip()}"
     return hashlib.sha256(raw.encode("utf-8")).hexdigest()
 
 
-def _add_to_cache(key: str, value: str):
-    _cache[key] = value
-    _cache.move_to_end(key)
+def _make_intent_key(query: str, context: str) -> str:
+    signature = keyword_signature(query)
+    context_hash = short_hash(context)
+    return f"{signature}::{context_hash}"
 
-    if len(_cache) > LLM_CACHE_MAX_SIZE:
-        _cache.popitem(last=False)
+
+def _split_intent_key(intent_key: str):
+    signature, _, context_hash = intent_key.partition("::")
+    return set(signature.split()), context_hash
+
+
+def _similarity(left: set[str], right: set[str]) -> float:
+    if not left or not right:
+        return 0.0
+    return len(left & right) / len(left | right)
+
+
+def _find_similar_intent_key(intent_key: str):
+    wanted_tokens, wanted_context_hash = _split_intent_key(intent_key)
+    best_key = None
+    best_score = 0.0
+
+    for existing_key in _intent_cache:
+        existing_tokens, existing_context_hash = _split_intent_key(existing_key)
+        if existing_context_hash != wanted_context_hash:
+            continue
+
+        score = _similarity(wanted_tokens, existing_tokens)
+        if score > best_score:
+            best_key = existing_key
+            best_score = score
+
+    if best_score >= 0.34:
+        return best_key
+
+    return None
+
+
+def _cache_get(query: str, context: str):
+    exact_key = _make_cache_key(query, context)
+    intent_key = _make_intent_key(query, context)
+
+    with _cache_lock:
+        cache_key = exact_key
+        if exact_key not in _cache and intent_key in _intent_cache:
+            cache_key = _intent_cache[intent_key]
+        elif exact_key not in _cache:
+            similar_intent_key = _find_similar_intent_key(intent_key)
+            if similar_intent_key is not None:
+                cache_key = _intent_cache[similar_intent_key]
+
+        if cache_key not in _cache:
+            return None
+
+        cached_result = _cache[cache_key].copy()
+        _cache.move_to_end(cache_key)
+        cached_result["cached"] = True
+        cached_result["latency"] = 0
+        return cached_result
+
+
+def _add_to_cache(query: str, context: str, value: dict):
+    exact_key = _make_cache_key(query, context)
+    intent_key = _make_intent_key(query, context)
+
+    with _cache_lock:
+        cached_value = value.copy()
+        cached_value["cached"] = False
+        cached_value["latency"] = 0
+        _cache[exact_key] = cached_value
+        _cache.move_to_end(exact_key)
+        _intent_cache[intent_key] = exact_key
+        _intent_cache.move_to_end(intent_key)
+
+        while len(_cache) > LLM_CACHE_MAX_SIZE:
+            _cache.popitem(last=False)
+        while len(_intent_cache) > LLM_CACHE_MAX_SIZE:
+            _intent_cache.popitem(last=False)
+
+
+def _wait_for_inflight(cache_key: str):
+    with _cache_lock:
+        event = _inflight.get(cache_key)
+        if event is None:
+            event = threading.Event()
+            _inflight[cache_key] = event
+            return event, True
+
+    event.wait()
+    return event, False
+
+
+def _finish_inflight(cache_key: str):
+    with _cache_lock:
+        event = _inflight.pop(cache_key, None)
+        if event is not None:
+            event.set()
 
 
 def _build_prompt(query: str, context: str = "") -> str:
@@ -95,13 +192,14 @@ def _generate_answer(prompt: str) -> tuple[str, int, int]:
 
     input_tokens = int(inputs["input_ids"].shape[1])
 
-    with torch.no_grad():
-        outputs = model.generate(
-            **inputs,
-            max_new_tokens=LLM_MAX_NEW_TOKENS,
-            do_sample=False,
-            num_beams=1,
-        )
+    with _generation_lock:
+        with torch.no_grad():
+            outputs = model.generate(
+                **inputs,
+                max_new_tokens=LLM_MAX_NEW_TOKENS,
+                do_sample=False,
+                num_beams=1,
+            )
 
     answer = tokenizer.decode(outputs[0], skip_special_tokens=True).strip()
     output_tokens = int(outputs.shape[1])
@@ -146,32 +244,36 @@ def run_llm_with_metrics(
             "device": _device,
             "model": LLM_MODEL_NAME,
             "error": "empty_query",
+            "source": "llm_error",
         }
 
     query = query.strip()
     context = context.strip() if context else ""
 
-    cache_key = _make_cache_key(query, context)
-
-    if cache_key in _cache:
-        cached_answer = _cache[cache_key]
-        _cache.move_to_end(cache_key)
-
+    cached_result = _cache_get(query, context)
+    if cached_result is not None:
         latency = time.time() - start_time
         _log(f"Cache hit | request_id={request_id} | latency={latency:.4f}s")
+        cached_result["request_id"] = request_id
+        cached_result["latency"] = latency
+        cached_result["source"] = "llm_cache"
+        return cached_result
 
-        return {
-            "request_id": request_id,
-            "answer": cached_answer,
-            "success": True,
-            "cached": True,
-            "latency": latency,
-            "input_tokens": 0,
-            "output_tokens": len(cached_answer.split()),
-            "device": _device,
-            "model": LLM_MODEL_NAME,
-            "error": None,
-        }
+    inflight_key = _make_intent_key(query, context)
+    _, owns_inflight = _wait_for_inflight(inflight_key)
+
+    if not owns_inflight:
+        cached_result = _cache_get(query, context)
+        if cached_result is not None:
+            latency = time.time() - start_time
+            _log(
+                f"Cache hit after wait | request_id={request_id} | "
+                f"latency={latency:.4f}s"
+            )
+            cached_result["request_id"] = request_id
+            cached_result["latency"] = latency
+            cached_result["source"] = "llm_cache"
+            return cached_result
 
     try:
         prompt = _build_prompt(query, context)
@@ -187,11 +289,10 @@ def run_llm_with_metrics(
                     f"attempt={attempt} | request_id={request_id}"
                 )
 
-                with ThreadPoolExecutor(max_workers=1) as executor:
-                    future = executor.submit(_generate_answer, prompt)
-                    answer, input_tokens, output_tokens = future.result(
-                        timeout=LLM_TIMEOUT_SECONDS
-                    )
+                future = _executor.submit(_generate_answer, prompt)
+                answer, input_tokens, output_tokens = future.result(
+                    timeout=LLM_TIMEOUT_SECONDS
+                )
 
                 break
 
@@ -214,15 +315,7 @@ def run_llm_with_metrics(
                     raise e
 
         latency = time.time() - start_time
-        _add_to_cache(cache_key, answer)
-
-        _log(
-            f"Inference complete | request_id={request_id} | "
-            f"latency={latency:.4f}s | "
-            f"input_tokens={input_tokens} | output_tokens={output_tokens}"
-        )
-
-        return {
+        response = {
             "request_id": request_id,
             "answer": answer,
             "success": True,
@@ -233,7 +326,17 @@ def run_llm_with_metrics(
             "device": _device,
             "model": LLM_MODEL_NAME,
             "error": None,
+            "source": "llm_inference",
         }
+        _add_to_cache(query, context, response)
+
+        _log(
+            f"Inference complete | request_id={request_id} | "
+            f"latency={latency:.4f}s | "
+            f"input_tokens={input_tokens} | output_tokens={output_tokens}"
+        )
+
+        return response
 
     except TimeoutError:
         latency = time.time() - start_time
@@ -253,6 +356,7 @@ def run_llm_with_metrics(
             "device": _device,
             "model": LLM_MODEL_NAME,
             "error": "timeout",
+            "source": "llm_timeout",
         }
 
     except Exception as e:
@@ -273,7 +377,11 @@ def run_llm_with_metrics(
             "device": _device,
             "model": LLM_MODEL_NAME,
             "error": str(e),
+            "source": "llm_error",
         }
+    finally:
+        if owns_inflight:
+            _finish_inflight(inflight_key)
 
 
 def run_llm_batch(requests: list[dict]) -> list[dict]:

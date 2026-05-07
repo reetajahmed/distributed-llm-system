@@ -51,6 +51,27 @@ class TestSchedulerWithProjectModules(unittest.TestCase):
         self.assertEqual(scheduler.retried, 0)
         self.assertEqual(scheduler.failed, 0)
 
+    def test_repeated_query_returns_from_scheduler_cache(self):
+        worker = ResponseWorker(1)
+        lb = LoadBalancer([worker], strategy="load_aware")
+        scheduler = Scheduler(lb)
+
+        first = scheduler.handle_request(Request(10, "What is RAG?"))
+        second = scheduler.handle_request(
+            Request(11, "Explain retrieval augmented generation")
+        )
+
+        self.assertEqual(first.worker_id, 1)
+        self.assertEqual(second.id, 11)
+        self.assertEqual(second.worker_id, 1)
+        self.assertEqual(second.strategy_used, "scheduler_cache")
+        self.assertTrue(second.cached)
+        self.assertEqual(scheduler.active_tasks[11], "CACHE_HIT")
+        self.assertEqual(scheduler.cache_hits, 1)
+
+        metrics = lb.get_metrics()
+        self.assertEqual(metrics["total_requests"], 1)
+
     def test_fault_tolerance_reassigns_after_worker_failure(self):
         workers = [
             ResponseWorker(1, fail=True),
@@ -124,10 +145,22 @@ class TestSchedulerWithRealRag(unittest.TestCase):
         lb = LoadBalancer([worker], strategy="load_aware")
         scheduler = Scheduler(lb)
 
-        def answer_with_context(query, context):
-            return f"query={query}\ncontext={context}"
+        def answer_with_context(query, context, request_id=None):
+            return {
+                "request_id": request_id,
+                "answer": f"query={query}\ncontext={context}",
+                "success": True,
+                "cached": False,
+                "latency": 0.01,
+                "input_tokens": 1,
+                "output_tokens": 1,
+                "device": "cpu",
+                "model": "test",
+                "error": None,
+                "source": "llm_inference",
+            }
 
-        with patch("workers.gpu_worker.run_llm", side_effect=answer_with_context):
+        with patch("workers.gpu_worker.run_llm_with_metrics", side_effect=answer_with_context):
             response = scheduler.handle_request(
                 Request(
                     4,

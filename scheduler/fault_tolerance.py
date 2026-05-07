@@ -15,22 +15,40 @@ class FaultTolerance:
     def __init__(self, load_balancer):
         self.lb = load_balancer
 
+    def _attach_retry_metadata(self, response, attempts, recovered):
+        if isinstance(response, dict):
+            response["retry_attempts"] = attempts
+            response["recovered_by_retry"] = recovered
+            response["source"] = response.get("source", "retry_failure")
+            return response
+
+        setattr(response, "retry_attempts", attempts)
+        setattr(response, "recovered_by_retry", recovered)
+        return response
+
     def handle_failure(self, request, retries=2):
         print(f"[FaultTolerance] Handling failure for request {request.id}")
+        attempts = 0
 
         for attempt in range(retries):
             try:
+                attempts = attempt + 1
                 print(f"[FaultTolerance] Retry {attempt + 1} for request {request.id}")
                 response = self.lb.dispatch(request)
                 success = _response_succeeded(response)
 
                 if success:
                     print(f"[FaultTolerance] Request {request.id} succeeded on retry {attempt + 1}")
-                    return response
+                    return self._attach_retry_metadata(
+                        response,
+                        attempts=attempts,
+                        recovered=True,
+                    )
                 else:
                     print(f"[FaultTolerance] Retry {attempt + 1} returned unsuccessful result")
 
             except Exception as e:
+                attempts = attempt + 1
                 print(f"[FaultTolerance] Retry {attempt + 1} failed: {e}")
 
         print(f"[FaultTolerance] Request {request.id} FAILED permanently")
@@ -40,5 +58,8 @@ class FaultTolerance:
             "answer": "FAILED",
             "success": False,
             "latency": 0.0,
-            "rag_results": []
+            "rag_results": [],
+            "retry_attempts": attempts,
+            "recovered_by_retry": False,
+            "source": "retry_failure",
         }
