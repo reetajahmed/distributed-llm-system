@@ -91,6 +91,8 @@ def export_run_report(
         "query_workload_size": args.query_workload_size,
         "query_unique_ratio": args.query_unique_ratio,
         "query_repeat_pool_size": args.query_repeat_pool_size,
+        "max_client_workers": args.max_client_workers,
+        "request_delay": args.request_delay,
         "warm_cache": args.warm_cache,
         **client_summary,
         "scheduler_tasks_completed": scheduler.completed,

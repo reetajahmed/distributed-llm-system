@@ -347,11 +347,15 @@ def send_request(scheduler, request_id, query=None):
 
 
 # Run load test
-def run_client(scheduler, num_requests=None, queries=None):
+def run_client(scheduler, num_requests=None, queries=None, max_workers=None, request_delay=None):
     if num_requests is None:
         num_requests = config.NUM_USERS
     if queries is None:
         queries = QUERIES
+    if max_workers is None:
+        max_workers = config.MAX_WORKERS
+    if request_delay is None:
+        request_delay = config.REQUEST_DELAY
 
     results = []
     unique_queries = len(set(queries[:num_requests]))
@@ -364,13 +368,13 @@ def run_client(scheduler, num_requests=None, queries=None):
 
     start_time = time.time()
 
-    with ThreadPoolExecutor(max_workers=config.MAX_WORKERS) as executor:
+    with ThreadPoolExecutor(max_workers=max_workers) as executor:
         futures = []
 
         for i in range(num_requests):
             query = queries[i % len(queries)]
             futures.append(executor.submit(send_request, scheduler, i, query))
-            time.sleep(config.REQUEST_DELAY)
+            time.sleep(request_delay)
 
         # wait for all requests
         for future in futures:

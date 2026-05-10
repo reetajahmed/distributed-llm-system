@@ -1,5 +1,6 @@
 import argparse
 from dataclasses import asdict
+from typing import Optional
 
 import uvicorn
 from fastapi import FastAPI
@@ -14,7 +15,7 @@ from workers.rag import ingest_documents
 class ProcessRequest(BaseModel):
     id: int
     query: str
-    timestamp: float | None = None
+    timestamp: Optional[float] = None
 
 
 def create_app(worker_id: int, ingest_rag: bool = True) -> FastAPI:
