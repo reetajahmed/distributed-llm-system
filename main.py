@@ -132,12 +132,28 @@ def parse_args():
         default=config.REPORT_EXPORT_DIR,
         help="Directory for CSV report exports. Use an empty value to disable.",
     )
+    parser.add_argument(
+        "--max-client-workers",
+        type=int,
+        default=config.MAX_WORKERS,
+        help="Maximum concurrent client request threads.",
+    )
+    parser.add_argument(
+        "--request-delay",
+        type=float,
+        default=config.REQUEST_DELAY,
+        help="Delay in seconds between submitted client requests.",
+    )
     args = parser.parse_args()
 
     if args.users < 1:
         parser.error("--users must be at least 1")
     if args.workers < 1:
         parser.error("--workers must be at least 1")
+    if args.max_client_workers < 1:
+        parser.error("--max-client-workers must be at least 1")
+    if args.request_delay < 0:
+        parser.error("--request-delay must be zero or greater")
     if args.query_workload_size < 1:
         parser.error("--query-workload-size must be at least 1")
     if not 0 <= args.query_unique_ratio <= 1:
@@ -167,6 +183,8 @@ def main():
     print(f"Generated query workload: {args.query_workload_size}")
     print(f"Query unique ratio: {args.query_unique_ratio:.2f}")
     print(f"Query repeat pool size: {args.query_repeat_pool_size}")
+    print(f"Max client workers: {args.max_client_workers}")
+    print(f"Request delay: {args.request_delay}")
     if args.distributed:
         print(f"Worker URLs: {args.worker_urls}")
 
@@ -197,7 +215,13 @@ def main():
         repeat_pool_size=args.query_repeat_pool_size,
     )
 
-    client_report = run_client(scheduler, num_requests=args.users, queries=queries)
+    client_report = run_client(
+        scheduler,
+        num_requests=args.users,
+        queries=queries,
+        max_workers=args.max_client_workers,
+        request_delay=args.request_delay,
+    )
 
     scheduler.print_summary()
 
