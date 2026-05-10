@@ -30,6 +30,7 @@ _STOPWORDS = {
     "working",
 }
 
+# Synonyms collapse similar wording into the same cache intent.
 _SYNONYMS = {
     "ai": "artificial-intelligence",
     "artificial": "artificial-intelligence",
@@ -62,6 +63,7 @@ _SYNONYMS = {
 
 
 def normalize_text(text: str) -> str:
+    # Lowercase and strip punctuation so keys compare consistently.
     text = text or ""
     text = text.lower()
     text = re.sub(r"[^a-z0-9]+", " ", text)
@@ -69,6 +71,7 @@ def normalize_text(text: str) -> str:
 
 
 def keyword_signature(text: str) -> str:
+    # Convert a question into stable intent keywords for fuzzy cache hits.
     tokens = []
     for token in normalize_text(text).split():
         if token in _STOPWORDS:
@@ -83,4 +86,5 @@ def keyword_signature(text: str) -> str:
 
 
 def short_hash(text: str) -> str:
+    # Short hash is used when full text would make cache keys too long.
     return hashlib.sha256((text or "").strip().encode("utf-8")).hexdigest()[:16]

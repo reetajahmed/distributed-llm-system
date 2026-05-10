@@ -18,6 +18,7 @@ DOCUMENTS = []
 DOC_IDS = []
 _SEEN_DOC_HASHES = set()
 
+# FAISS index, embedding model, and caches live for the process lifetime.
 index = None
 _model = None
 _cache = OrderedDict()
@@ -30,6 +31,7 @@ def _log(message: str):
 
 
 def _load_model():
+    # Lazy-load embeddings so import stays fast.
     global _model
 
     if _model is None:
@@ -50,6 +52,7 @@ def _make_cache_key(query: str, top_k: int) -> str:
 
 
 def _add_to_cache(key: str, value: dict):
+    # Small LRU cache for repeated retrieval requests.
     _cache[key] = value
     _cache.move_to_end(key)
 
@@ -58,6 +61,7 @@ def _add_to_cache(key: str, value: dict):
 
 
 def _get_query_embedding(query: str):
+    # Cache query embeddings separately from full retrieval results.
     if query in _query_embedding_cache:
         _query_embedding_cache.move_to_end(query)
         _log(f"Query embedding cache hit: {query}")
@@ -77,6 +81,7 @@ def _get_query_embedding(query: str):
 
 
 def ingest_documents(docs):
+    # Add only new, non-empty documents to the FAISS index.
     global DOCUMENTS, DOC_IDS, _SEEN_DOC_HASHES, index
 
     if not docs:
@@ -140,6 +145,7 @@ def ingest_documents(docs):
 
 
 def retrieve(query: str, top_k: int = None) -> dict:
+    # Return the most relevant documents and combined context for the LLM.
     global index, DOCUMENTS, DOC_IDS, _cache
 
     start_time = time.time()

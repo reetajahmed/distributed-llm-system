@@ -13,6 +13,7 @@ from scheduler.fault_tolerance import FaultTolerance
 
 
 def _response_succeeded(response):
+    # Accept both dataclass Response objects and dict fallback responses.
     if isinstance(response, dict):
         return response.get("success", False)
 
@@ -43,6 +44,7 @@ def _response_retry_attempts(response):
 
 class Scheduler:
     def __init__(self, load_balancer):
+        # Scheduler coordinates cache hits, routing, retries, and counters.
         self.lb = load_balancer
         self.fault_handler = FaultTolerance(self.lb)
 
@@ -65,6 +67,7 @@ class Scheduler:
         self._cache_lock = threading.RLock()
 
     def _cache_key(self, query: str) -> str:
+        # Similar questions share a scheduler-level response cache key.
         signature = keyword_signature(query)
         if signature:
             return f"intent::{signature}"
@@ -82,6 +85,7 @@ class Scheduler:
         return len(left & right) / len(left | right)
 
     def _find_similar_cache_key(self, cache_key: str):
+        # Fuzzy cache lookup catches wording changes with same intent.
         best_key = None
         best_score = 0.0
 
@@ -97,6 +101,7 @@ class Scheduler:
         return None
 
     def _clone_cached_response(self, request, cached_response, latency: float):
+        # Cached responses are copied so each request keeps its own id/latency.
         if isinstance(cached_response, dict):
             response = copy.deepcopy(cached_response)
             response["request_id"] = request.id
@@ -118,6 +123,7 @@ class Scheduler:
         return response
 
     def _get_cached_response(self, request, start_time: float):
+        # Fast path: return a scheduler cache hit before touching workers.
         cache_key = self._cache_key(request.query)
 
         with self._cache_lock:
@@ -146,6 +152,7 @@ class Scheduler:
         self.source_counts[_response_source(response)] += 1
 
     def _store_cached_response(self, request, response):
+        # Only successful worker answers are reusable.
         if not _response_succeeded(response):
             return
 
@@ -163,6 +170,7 @@ class Scheduler:
                 self._response_cache.popitem(last=False)
 
     def _wait_for_inflight(self, cache_key: str):
+        # Prevent duplicate in-flight requests from computing the same answer.
         with self._cache_lock:
             event = self._inflight.get(cache_key)
             if event is None:
@@ -180,6 +188,7 @@ class Scheduler:
                 event.set()
 
     def handle_request(self, request):
+        # Main request lifecycle: cache, dispatch, retry, record result.
         print(f"[Scheduler] Received request {request.id}")
 
         start_time = time.time()
@@ -236,6 +245,7 @@ class Scheduler:
         except Exception as e:
             print(f"[Scheduler] ERROR on request {request.id}: {e}")
 
+            # Failed dispatches go through retry/reassignment logic.
             self.active_tasks[request.id] = "RETRYING"
             self.retried += 1
 
@@ -285,6 +295,7 @@ class Scheduler:
         print("============================\n")
 
     def clear_cache(self):
+        # Useful for tests and repeated experiments in one process.
         with self._cache_lock:
             self._response_cache.clear()
             self._inflight.clear()

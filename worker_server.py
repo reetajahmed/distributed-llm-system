@@ -13,12 +13,14 @@ from workers.rag import ingest_documents
 
 
 class ProcessRequest(BaseModel):
+    # JSON body accepted by the /process endpoint.
     id: int
     query: str
     timestamp: Optional[float] = None
 
 
 def create_app(worker_id: int, ingest_rag: bool = True) -> FastAPI:
+    # Each HTTP server wraps one GPUWorker instance.
     app = FastAPI(title=f"GPU Worker {worker_id}")
     worker = GPUWorker(worker_id=worker_id)
 
@@ -58,6 +60,7 @@ def create_app(worker_id: int, ingest_rag: bool = True) -> FastAPI:
 
     @app.post("/process")
     def process(payload: ProcessRequest):
+        # Rebuild the shared Request dataclass before calling worker.process.
         request = Request(id=payload.id, query=payload.query)
         if payload.timestamp is not None:
             request.timestamp = payload.timestamp
@@ -69,6 +72,7 @@ def create_app(worker_id: int, ingest_rag: bool = True) -> FastAPI:
 
 
 def parse_args():
+    # Worker id and port are required so multiple servers can run locally.
     parser = argparse.ArgumentParser(description="Run one distributed GPU worker.")
     parser.add_argument("--worker-id", type=int, required=True)
     parser.add_argument("--host", default="127.0.0.1")
@@ -82,6 +86,7 @@ def parse_args():
 
 
 def main():
+    # Start one FastAPI/uvicorn worker service.
     args = parse_args()
     app = create_app(
         worker_id=args.worker_id,

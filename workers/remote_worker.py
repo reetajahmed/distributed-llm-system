@@ -4,6 +4,7 @@ from common.types import Response
 
 
 def _requests():
+    # Import lazily so local-only runs do not require requests at import time.
     try:
         import requests
     except ImportError as exc:
@@ -23,6 +24,7 @@ class RemoteGPUWorker:
         timeout_seconds: float = 60.0,
         gpu_capacity: float = None,
     ):
+        # Proxy object that looks like GPUWorker but calls an HTTP service.
         self.id = worker_id
         self.base_url = base_url.rstrip("/")
         self.timeout_seconds = timeout_seconds
@@ -35,6 +37,7 @@ class RemoteGPUWorker:
             self.gpu_capacity = gpu_capacity
 
     def is_healthy(self) -> bool:
+        # Load balancer calls this before routing to remote workers.
         requests = _requests()
         try:
             response = requests.get(
@@ -49,6 +52,7 @@ class RemoteGPUWorker:
             return False
 
     def process(self, request):
+        # Convert the local Request into a POST to the worker server.
         requests = _requests()
         start = time.time()
         self.active_connections += 1
@@ -93,6 +97,7 @@ class RemoteGPUWorker:
             self.active_connections -= 1
 
     def get_stats(self):
+        # Pull live stats from the remote worker's /stats endpoint.
         requests = _requests()
         response = requests.get(
             f"{self.base_url}/stats",

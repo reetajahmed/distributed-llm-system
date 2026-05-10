@@ -1,3 +1,4 @@
+# Seed knowledge base used by RAG during local demos and worker startup.
 DEFAULT_DOCUMENTS = [
     "AI, or artificial intelligence, lets software perform tasks that usually require human reasoning.",
     "Load balancing distributes incoming requests across multiple workers.",

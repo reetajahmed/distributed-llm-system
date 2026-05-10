@@ -49,6 +49,7 @@ QUERY_TEMPLATES = {
     ],
 }
 
+# Rich query parts create varied but still project-relevant load-test traffic.
 QUERY_SCENARIOS = {
     "ai": {
         "subjects": [
@@ -257,6 +258,7 @@ REALISTIC_QUERY_PATTERNS = [
 
 
 def _generate_unique_queries(rng, count):
+    # Create many possible questions, shuffle, then keep the requested count.
     candidates = []
 
     for topic, parts in QUERY_SCENARIOS.items():
@@ -277,6 +279,7 @@ def _generate_unique_queries(rng, count):
 
 
 def generate_query_workload(size=None, seed=None, unique_ratio=None, repeat_pool_size=None):
+    # Mix unique queries with repeated ones so cache behavior is visible.
     if size is None:
         size = config.QUERY_WORKLOAD_SIZE
     if seed is None:
@@ -311,11 +314,13 @@ WARMUP_QUERIES = [
 
 # Wrapper (abstraction layer)
 def send_to_scheduler(scheduler, request):
+    # Small wrapper keeps the client independent from scheduler internals.
     return scheduler.handle_request(request)
 
 
 # Send single request
 def send_request(scheduler, request_id, query=None):
+    # One client task: build a Request, send it, and normalize the result.
     if query is None:
         query = random.choice(QUERIES)
     request = Request(id=request_id, query=query)
@@ -348,6 +353,7 @@ def send_request(scheduler, request_id, query=None):
 
 # Run load test
 def run_client(scheduler, num_requests=None, queries=None, max_workers=None, request_delay=None):
+    # Fire many requests concurrently and return both summary and row-level data.
     if num_requests is None:
         num_requests = config.NUM_USERS
     if queries is None:
@@ -368,6 +374,7 @@ def run_client(scheduler, num_requests=None, queries=None, max_workers=None, req
 
     start_time = time.time()
 
+    # ThreadPoolExecutor simulates many users sending requests at once.
     with ThreadPoolExecutor(max_workers=max_workers) as executor:
         futures = []
 
@@ -383,7 +390,7 @@ def run_client(scheduler, num_requests=None, queries=None, max_workers=None, req
     end_time = time.time()
     total_time = end_time - start_time
 
-    # Metrics Calculation
+    # Metrics calculation for the console summary and CSV report.
     total_requests = len(results)
     successes = sum(1 for r in results if r["success"])
     failures = total_requests - successes

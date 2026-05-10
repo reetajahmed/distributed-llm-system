@@ -20,6 +20,7 @@ def build_scheduler(
     distributed: bool = False,
     worker_urls: list[str] = None,
 ) -> Scheduler:
+    # Build either local worker objects or HTTP-backed remote workers.
     if distributed:
         if not worker_urls:
             raise ValueError("Distributed mode requires at least one worker URL.")
@@ -41,6 +42,7 @@ def build_scheduler(
 
 
 def warm_cache(scheduler: Scheduler):
+    # Run known queries once, then reset counters before the real test.
     print("\n===== Warming Cache =====")
     for index, query in enumerate(WARMUP_QUERIES):
         response = scheduler.handle_request(Request(id=-(index + 1), query=query))
@@ -62,6 +64,7 @@ def warm_cache(scheduler: Scheduler):
 
 
 def parse_args():
+    # CLI flags override config.py defaults for each experiment run.
     parser = argparse.ArgumentParser(
         description="Run the distributed LLM system load test."
     )
@@ -174,6 +177,7 @@ def parse_args():
 def main():
     args = parse_args()
 
+    # Print the exact experiment settings before any work starts.
     print("\n===== Distributed LLM System =====")
     print(f"Users: {args.users}")
     print(f"Workers: {args.workers}")
@@ -185,6 +189,7 @@ def main():
     print(f"Query repeat pool size: {args.query_repeat_pool_size}")
     print(f"Max client workers: {args.max_client_workers}")
     print(f"Request delay: {args.request_delay}")
+    # Remote workers ingest their own RAG docs; local mode does it here.
     if args.distributed:
         print(f"Worker URLs: {args.worker_urls}")
 
@@ -198,6 +203,7 @@ def main():
             f"({ingest_result['added']} added)"
         )
 
+    # Scheduler owns cache, retry handling, and load balancer access.
     scheduler = build_scheduler(
         strategy=args.strategy,
         worker_count=args.workers,
@@ -208,6 +214,7 @@ def main():
     if args.warm_cache:
         warm_cache(scheduler)
 
+    # Generate realistic repeated/unique traffic for the client threads.
     queries = generate_query_workload(
         size=args.query_workload_size,
         seed=args.query_seed,
@@ -225,6 +232,7 @@ def main():
 
     scheduler.print_summary()
 
+    # Print routing metrics separately from client and scheduler summaries.
     metrics = scheduler.lb.get_metrics()
     print("===== Load Balancer Metrics =====")
     print(f"Total routed requests: {metrics['total_requests']}")

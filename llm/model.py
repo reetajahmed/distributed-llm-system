@@ -28,6 +28,8 @@ from common.text_utils import keyword_signature, normalize_text, short_hash
 
 _tokenizer = None
 _model = None
+
+# Exact-answer and intent caches avoid repeated model inference.
 _cache = OrderedDict()
 _intent_cache = OrderedDict()
 _device = "cuda" if torch.cuda.is_available() else "cpu"
@@ -39,6 +41,7 @@ def _log(message: str):
 
 
 def _load_llm():
+    # Lazy-load the model once per process to avoid startup cost until needed.
     global _tokenizer, _model
 
     with _llm_lock:
@@ -54,11 +57,13 @@ def _load_llm():
 
 
 def _make_cache_key(query: str, context: str) -> str:
+    # Exact cache key includes both the normalized query and retrieved context.
     raw = f"{normalize_text(query)}::{context.strip()}"
     return hashlib.sha256(raw.encode("utf-8")).hexdigest()
 
 
 def _make_intent_key(query: str, context: str) -> str:
+    # Intent key lets similar questions share an answer when context matches.
     signature = keyword_signature(query)
     context_hash = short_hash(context)
     return f"{signature}::{context_hash}"
@@ -76,6 +81,7 @@ def _similarity(left: set[str], right: set[str]) -> float:
 
 
 def _find_similar_intent_key(intent_key: str):
+    # Search previous intent keys for a close-enough cache match.
     wanted_tokens, wanted_context_hash = _split_intent_key(intent_key)
     best_key = None
     best_score = 0.0
@@ -97,6 +103,7 @@ def _find_similar_intent_key(intent_key: str):
 
 
 def _cache_get(query: str, context: str):
+    # Try exact, same-intent, then similar-intent cache lookup.
     exact_key = _make_cache_key(query, context)
     intent_key = _make_intent_key(query, context)
 
@@ -120,6 +127,7 @@ def _cache_get(query: str, context: str):
 
 
 def _add_to_cache(query: str, context: str, value: dict):
+    # Store both exact and intent keys, evicting oldest entries when full.
     exact_key = _make_cache_key(query, context)
     intent_key = _make_intent_key(query, context)
 
@@ -139,6 +147,7 @@ def _add_to_cache(query: str, context: str, value: dict):
 
 
 def _wait_for_inflight(cache_key: str):
+    # Let one thread compute an answer while duplicate requests wait.
     with _cache_lock:
         event = _inflight.get(cache_key)
         if event is None:
@@ -158,6 +167,7 @@ def _finish_inflight(cache_key: str):
 
 
 def _build_prompt(query: str, context: str = "") -> str:
+    # RAG context is included only when retrieval found useful text.
     if context and context.strip():
         return f"""
 Answer the question using only the context below.
@@ -181,6 +191,7 @@ Answer:
 
 
 def _generate_answer(prompt: str) -> tuple[str, int, int]:
+    # Generation is locked because the local model is shared by all requests.
     tokenizer, model = _load_llm()
 
     inputs = tokenizer(
@@ -278,6 +289,7 @@ def run_llm_with_metrics(
     try:
         prompt = _build_prompt(query, context)
 
+        # Retry protects callers from transient model or timeout failures.
         answer = None
         input_tokens = 0
         output_tokens = 0

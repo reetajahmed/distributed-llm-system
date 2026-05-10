@@ -9,6 +9,7 @@ def _timestamp():
 
 
 def _write_rows(path: Path, rows: list[dict], fieldnames: list[str] = None):
+    # Write dict rows and infer headers when no fixed order is provided.
     path.parent.mkdir(parents=True, exist_ok=True)
 
     if fieldnames is None:
@@ -27,6 +28,7 @@ def _write_rows(path: Path, rows: list[dict], fieldnames: list[str] = None):
 
 
 def _metric_rows(metrics: dict, prefix: str = ""):
+    # Flatten nested metric dictionaries into metric/value CSV rows.
     rows = []
 
     for key, value in metrics.items():
@@ -54,6 +56,7 @@ def _requests_per_worker_rows(requests_per_worker: dict):
 
 
 def _worker_rows(worker_stats: dict):
+    # Nested per-worker stats are stored as JSON strings in one CSV cell.
     rows = []
 
     for worker_id, stats in sorted(worker_stats.items()):
@@ -76,6 +79,7 @@ def export_run_report(
     load_balancer_metrics,
     worker_stats,
 ):
+    # Create one timestamped folder containing all CSV outputs for a run.
     run_id = _timestamp()
     base_dir = Path(export_dir) / run_id
     base_dir.mkdir(parents=True, exist_ok=True)

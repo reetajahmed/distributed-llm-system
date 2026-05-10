@@ -3,7 +3,7 @@ import time
 from typing import Optional
 
 
-# Request Object
+# Request sent from client to scheduler/worker.
 @dataclass
 class Request:
     id: int
@@ -11,7 +11,7 @@ class Request:
     timestamp: float = field(default_factory=time.time)
 
 
-# Response Object
+# Response returned by workers and caches.
 @dataclass
 class Response:
     id: int
@@ -25,7 +25,7 @@ class Response:
     source: str = "worker"
 
 
-# Task Tracking (for Scheduler)
+# Minimal task state kept by the scheduler.
 @dataclass
 class Task:
     request: Request

@@ -1,10 +1,15 @@
+# Default load-test size and client concurrency.
 NUM_USERS=1000
 MAX_WORKERS=200
 REQUEST_DELAY=0
+
+# Query workload controls used by client/client.py.
 QUERY_RANDOM_SEED = 42
 QUERY_WORKLOAD_SIZE = 1000
 QUERY_UNIQUE_RATIO = 0.75
 QUERY_REPEAT_POOL_SIZE = 50
+
+# Report output and remote worker defaults.
 REPORT_EXPORT_DIR = "reports"
 REMOTE_WORKER_TIMEOUT_SECONDS = 180
 DEFAULT_REMOTE_WORKER_URLS = (

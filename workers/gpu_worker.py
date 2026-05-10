@@ -9,6 +9,7 @@ from common.types import Response
 
 class GPUWorker:
     def __init__(self, worker_id: int):
+        # Local worker state used by load balancer health and metrics.
         self.id = worker_id
         self.alive = True                 
         self.active_connections = 0
@@ -27,6 +28,7 @@ class GPUWorker:
         }
 
     def process(self, request):
+        # Worker pipeline: retrieve context, run LLM, wrap a Response.
         start = time.time()
         self.active_connections += 1     
 
@@ -84,6 +86,7 @@ class GPUWorker:
         return response
 
     def _record_stats(self, success, cached, source, error, latency):
+        # Keep per-worker counters for /stats and CSV reports.
         with self._stats_lock:
             self._stats["processed"] += 1
             self._stats["total_latency"] += latency
@@ -106,6 +109,7 @@ class GPUWorker:
                 self._stats["errors"] += 1
 
     def get_stats(self):
+        # Return a snapshot so callers do not touch internal counters directly.
         with self._stats_lock:
             processed = self._stats["processed"]
             average_latency = (

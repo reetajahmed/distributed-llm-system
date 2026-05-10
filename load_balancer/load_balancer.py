@@ -20,10 +20,12 @@ if TYPE_CHECKING:
 
 
 def _worker_id(worker: "GPUWorker") -> int:
+    # Normalize local and remote worker id field names.
     return int(getattr(worker, "id", getattr(worker, "worker_id", id(worker))))
 
 
 def _is_healthy(worker: "GPUWorker") -> bool:
+    # Prefer active health checks, then fallback to state flags.
     health_check = getattr(worker, "is_healthy", None)
     if callable(health_check):
         return bool(health_check())
@@ -56,6 +58,7 @@ def _queue_length(worker: "GPUWorker") -> int:
 
 
 def _gpu_capacity(worker: "GPUWorker") -> float:
+    # Capacity may be expressed as 0-1 weight or 0-100 percentage.
     capacity = getattr(worker, "gpu_capacity", None)
     if capacity is None:
         capacity = getattr(worker, "capacity", None)
@@ -72,6 +75,7 @@ def _gpu_capacity(worker: "GPUWorker") -> float:
 
 
 def _rolling_latency(worker: "GPUWorker") -> float:
+    # Remote workers update rolling latency after each HTTP request.
     for attr in ("rolling_latency", "average_latency", "avg_latency", "latency"):
         value = getattr(worker, attr, None)
         if value is not None:
@@ -106,6 +110,7 @@ class RoundRobinBalancer:
         self._lock = threading.Lock()
 
     def get_worker(self) -> Optional["GPUWorker"]:
+        # Weighted round robin gives larger-capacity workers more turns.
         with self._lock:
             healthy = _healthy_workers(self._workers)
             if not healthy:
@@ -137,6 +142,7 @@ class LeastConnectionsBalancer:
         self._workers = workers
 
     def get_worker(self) -> Optional["GPUWorker"]:
+        # Break ties by active work, queue length, then worker id.
         healthy = _healthy_workers(self._workers)
         if not healthy:
             return None
@@ -163,6 +169,7 @@ class LoadAwareBalancer:
         self._workers = workers
 
     def _score(self, worker: "GPUWorker") -> float:
+        # Lower score means the worker currently looks cheaper to use.
         active = _active_connections(worker)
         queued = _queue_length(worker)
         capacity = _gpu_capacity(worker)
@@ -195,6 +202,7 @@ class LoadBalancer:
     STRATEGIES = LOAD_BALANCER_STRATEGIES
 
     def __init__(self, workers: List["GPUWorker"], strategy: str = LOAD_BALANCER_DEFAULT_STRATEGY):
+        # One LoadBalancer owns all strategies and shared metrics.
         self._workers = list(workers)
         self._round_robin = RoundRobinBalancer(self._workers)
         self._least_conn = LeastConnectionsBalancer(self._workers)
@@ -229,6 +237,7 @@ class LoadBalancer:
             self._strategy = strategy
 
     def _pick(self) -> Optional["GPUWorker"]:
+        # Delegate selection to the configured strategy object.
         strategy = self.strategy
         if strategy == "round_robin":
             return self._round_robin.get_worker()
@@ -237,6 +246,7 @@ class LoadBalancer:
         return self._load_aware.get_worker()
 
     def dispatch(self, request: Request) -> Any:
+        # Select a healthy worker, send the request, and record routing metrics.
         start = time.time()
         worker = self._pick()
         if worker is None:
@@ -299,6 +309,7 @@ class LoadBalancer:
         source: str = "unknown",
         exception_failed: bool = False,
     ) -> None:
+        # Track routing health separately from scheduler/client metrics.
         with self._lock:
             self._metrics["total_requests"] += 1
             self._metrics["strategy_counts"][strategy] += 1
@@ -348,6 +359,7 @@ class LoadBalancer:
             }
 
     def get_worker_stats(self) -> Dict[int, Any]:
+        # Ask each worker for stats, but keep reporting alive on errors.
         stats = {}
         with self._lock:
             workers = list(self._workers)

@@ -1,3 +1,4 @@
+# Client workload and end-to-end scheduler smoke tests.
 from scheduler.scheduler import Scheduler
 from load_balancer.load_balancer import LoadBalancer
 from workers.gpu_worker import GPUWorker
